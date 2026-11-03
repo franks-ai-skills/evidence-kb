@@ -13,15 +13,14 @@ description: >-
   explicitly invokes it by name (/evidence-kb), never on your own initiative.
 license: AGPL-3.0-only
 compatibility: >-
-  Needs web search and fetch, write access to the repository, and Python 3.9+
-  for the bundled checker. Subagent support is strongly recommended so that
-  reviews are independent.
+  Needs a git repository, web search and fetch, and Python 3.9+ as python3
+  (the bundled kb.py does all file work). Subagent support is strongly
+  recommended so that reviews are independent. Agents other than Claude
+  Code may ask once to allow python3 kb.py, web search, and web fetch.
 disable-model-invocation: true
 argument-hint: "<topic, or path to a file describing it> [--out <dir>] [--max-rounds <n>] [--parallel <n>] [--max-topics <n>]"
 allowed-tools: >-
-  Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/check_kb.py *)
-  Bash(date -u *)
-  Bash(git rev-parse *)
+  Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/kb.py *)
   WebSearch
   WebFetch
 ---
@@ -43,30 +42,87 @@ The request: $ARGUMENTS
 (If the line above still shows a literal `$ARGUMENTS` placeholder or is
 empty, take the request from the user's message that invoked this skill.)
 
-## Files of this skill
+## Tools: one command for everything
 
-Paths are relative to this file's directory. In Claude Code that directory
-is `${CLAUDE_SKILL_DIR}`.
+The skill is built to run without any permission prompt. Its frontmatter
+pre-approves exactly three things, for you and for the subagents you start:
+web search, web fetch, and one script:
 
-- `references/bundle-format.md`: the bundle profile, with layout, document
-  types, required fields, allowed values, and templates. Read it before
-  you write the first file.
-- `references/prompts.md`: the prompts for researcher and reviewer
-  subagents, and the reviewer output format. Read it before a phase
-  starts any subagents.
-- `scripts/check_kb.py`: the deterministic checker. Run it as
-  `python3 <skill dir>/scripts/check_kb.py <command> <bundle>`:
-  - `check` validates the bundle. Add `--final` for the completion rules.
-    Exit status 1 means it found errors; warnings alone exit 0.
-  - `stats` prints the source mix and coverage tables for the audit.
-  - `index` regenerates every `index.md` file.
-  - `fingerprint` prints one hash of all files in the bundle, or with
-    `--files` one hash per file. Use it to confirm that a reviewer changed
-    nothing.
+```
+python3 ${CLAUDE_SKILL_DIR}/scripts/kb.py <command> …
+```
 
-  Problems are printed as `path:line: error|warning: message`. Exit
-  status 2 means a usage or read error, a directory that is not a bundle
-  (for `index`), or an internal error.
+`${CLAUDE_SKILL_DIR}` is the directory that contains this SKILL.md; Claude
+Code substitutes it. In an agent that doesn't, use that directory's
+absolute path yourself, and read the skill's files directly if that needs
+no permission there.
+
+Below, `KB` is only a placeholder in this text for exactly that command,
+with the skill directory as an absolute path. Every call must spell it out
+literally, so that it matches the pre-approval:
+
+- don't define a shell variable for it (`KB=…; $KB …` is refused);
+- don't prefix it with `cd …&&`;
+- don't wrap it in another shell command;
+- don't pipe or redirect its output.
+
+Relative bundle paths are resolved from the working directory. After the
+pre-flight, use the absolute `bundle:` path that it prints, everywhere and
+for every subagent.
+
+| You need to | Use |
+|-------------|-----|
+| read the format reference or the subagent prompts | `KB guide format`, `KB guide prompts` |
+| read and search files of the project or the bundle | the Read tool; for searching, the Grep and Glob tools if your host has them, otherwise plain read-only `grep -rn` or `find` commands without pipes (Claude Code runs both kinds inside the project without a prompt) |
+| check the environment and the bundle directory | `KB preflight <bundle>` |
+| create the bundle directory | `KB init <bundle>` |
+| create a file | `KB write <bundle> <path> --new` with the content as a heredoc |
+| replace a file you own | read it, then `KB write <bundle> <path>` with the complete new content |
+| add to a section of a file (new quotes, review responses) | `KB append <bundle> <path> --section <Title>` with the text as a heredoc |
+| set `status`, add a `verified` event, update `generated.at` | `KB mark <bundle> <path>… [--status S] [--verified-by ACTOR] [--touch]` |
+| add to `log.md` | `KB log <bundle> --kind <Word>` with the entry as a heredoc |
+| save, compare, or restore the bundle state | `KB snapshot <bundle>` (prints an id), `KB compare <bundle> <id>`, `KB restore <bundle> <id>` |
+| get the current time (for `generated.at`, `retrieved`) | `KB now` |
+| validate, get statistics, regenerate indexes | `KB check`, `KB stats`, `KB index` |
+
+Pass every text (file content, appended text, log entries) as a quoted
+heredoc, never inside quotes on the command line, so that nothing in it is
+expanded by the shell. Use a new terminator for every call: `KB_EOF_`
+followed by 8 random hexadecimal characters that you make up, so that
+text from a web page can't end the heredoc early:
+
+```
+KB write <bundle> references/ietf-rfc-9110.md --new <<'KB_EOF_3f9a1c07'
+---
+type: Source
+…
+KB_EOF_3f9a1c07
+```
+
+The terminator must start at the beginning of its line, and the text must
+not contain it.
+
+Never use the Write, Edit, or NotebookEdit tools, and never read the
+skill's own files with the Read tool in Claude Code. Both would ask the
+user for permission. `KB write` only writes the files of the bundle layout
+(`brief.md`, `plan.md`, `audit.md`, `findings/t<n>-<slug>/`,
+`recommendations/`, `references/`, `reviews/`), never through symbolic
+links, and refuses content whose frontmatter doesn't parse, that adds a
+`human:` event, or that drops a `verified` event. `log.md` changes only
+with `KB log`, and `index.md` only with `KB index`. `--new`
+refuses to overwrite an existing file. All writes to a bundle are
+serialized, so parallel researchers can't interleave.
+
+Exit status: 0 means success. 1 means problems were found or nothing was
+written; the reason is printed. 2 means a usage error, a path outside the
+project or the bundle, or an internal error. `check` prints problems as
+`path:line: error|warning: message`; warnings alone exit 0.
+
+If a call is still denied or asks for permission (for example, because the
+user sent a message during the run, which ends the pre-approval), don't
+work around it with other tools. Stop, and tell the user which permission
+was missing and that invoking the skill again without a topic resumes the
+run with fresh pre-approvals.
 
 ## Ground rules
 
@@ -76,9 +132,8 @@ These rules hold in every phase and override any habit of yours.
    ask the user, decide yourself: choose the most plausible reading, record
    it in the brief's assumptions together with its basis and what would
    change if it is wrong, and move on. If covering both readings costs
-   little, cover both. You may ask one question, once, and only when there
-   is nothing to work on: no topic in the request, none in the
-   conversation, and no existing bundle to resume (Phase 0).
+   little, cover both. The only exception is a request without a topic
+   (Phase 0, step 2).
 2. **Keep authoring and reviewing separate.** A reviewer is a fresh
    subagent. It gets the original request, the artifacts, and the review
    prompt, but not your reasoning or your conclusions. Reviewers only
@@ -134,14 +189,16 @@ These rules hold in every phase and override any habit of yours.
    rejects a stable document that was changed after its last `verified`
    event.
 8. **Do not destroy existing content.** Never delete or overwrite files
-   outside the bundle. Never overwrite an existing Source file: extend it
-   with an edit instead. Inside an existing bundle, set outdated documents
-   to `status: deprecated` instead of deleting them, and record each change
-   in `log.md`.
-9. **Use the checker, not your memory.** Run `check` after every phase and
-   fix every error before the gate. Take every number in the audit from
-   `stats`. Regenerate the index files with `index`; do not write them by
-   hand.
+   outside the bundle. Create new files with `KB write --new`. Extend a
+   file that others also use (a shared Source, a Review record) with `KB
+   append`, never by rewriting it, and keep every `verified` event when
+   you rewrite one of your own files. Inside an existing bundle, set
+   outdated documents to `status: deprecated` instead of deleting them,
+   and record each change in `log.md`.
+9. **Use the tool, not your memory.** Run `KB check` after every phase
+   and fix every error before the gate. Take every number in the audit
+   from `KB stats`. Regenerate the index files with `KB index`; they
+   cannot be written by hand. Take every timestamp from `KB now`.
 10. **Prose follows the request's language; the structure stays English.**
     Write titles, descriptions, and body text in the language of the
     request, unless the request asks for another language. Several things
@@ -155,7 +212,7 @@ These rules hold in every phase and override any habit of yours.
     in the KB's language, add a translation marked `Translation:`.
 11. **Report progress.** After each gate, print one line to the user
     (gate, round, verdict, open objections) and add the same line to
-    `log.md`.
+    `log.md` with `KB log`.
 12. **Do not commit or push** unless the request says to.
 
 ## Roles
@@ -169,18 +226,29 @@ These rules hold in every phase and override any habit of yours.
   `--parallel` at a time (default 4). They write the Source and Finding
   documents of their own topic.
 - **Reviewers (subagents):** a fresh subagent for every review and every
-  round, using the prompts in `references/prompts.md`. Make sure they
-  change nothing:
-  1. Before a gate's reviews start, save the output of `fingerprint
-     --files` to a file outside the bundle, for example in a temporary
-     directory.
-  2. After the reviews, run `fingerprint --files` again and compare the
-     two outputs.
-  3. If anything differs, a reviewer has edited files. Discard that gate
-     round. Restore the changed files to your own last version. If you
-     cannot restore a file with certainty, set its document to `draft`.
-     Note the incident in `log.md`, and run the round again with new
-     reviewers.
+  round, using the prompts from `KB guide prompts`.
+
+**Writing and reviewing never overlap.** Work alternates between writing
+steps (you and researchers write) and review steps (reviewers read; nobody
+writes). Reviews of several gates may run in parallel within one review
+step, but no researcher and no write of yours may run during it. This is
+how you can be sure that reviewers changed nothing:
+
+1. Right before a review step, run `KB snapshot <bundle>`. Keep the id it
+   prints in your own context; don't store it in a file.
+2. Start the reviewers and wait for all of them.
+3. Run `KB compare <bundle> <id>`. It verifies the snapshot itself, then
+   lists every file that was added, changed, or deleted.
+4. If anything is listed, a reviewer has written. Run `KB restore
+   <bundle> <id>`, write the reviews of this step off, log the incident
+   with `KB log`, and run the step again with new reviewers.
+   - If `compare` says that the snapshot was altered or doesn't exist,
+     the changes can't be undone. Set every document of the step's gates
+     to draft (`KB mark <bundle> <paths…> --status draft --touch`), log
+     the incident, and re-run the step's research and reviews.
+   - If it reports a new, changed, or removed bundle elsewhere in the
+     project, don't touch it. Log it, and name it in your final report, so
+     that the user can check it.
 
 In Claude Code, start subagents with the Agent tool (type
 `general-purpose`). In other agents, use their equivalent. If you cannot
@@ -202,30 +270,29 @@ Actors, following OKF §7:
 - researchers: `evidence-kb-researcher/<their model id>`
 
 Use `unknown` if a model id is not known. Never write a `human:` actor:
-nobody human has reviewed anything yet. Get timestamps from `date -u
-+%Y-%m-%dT%H:%M:%SZ`.
+nobody human has reviewed anything yet (`KB mark` refuses it). Get
+timestamps from `KB now`.
 
 ## Review gate protocol
 
 Each phase ends with a gate. A gate runs like this:
 
-1. Run `check`. Fix every error first; the reviewers' time is not for
+1. Run `KB check`. Fix every error first; the reviewers' time is not for
    formatting problems.
-2. Start the gate's reviewers from `references/prompts.md`, and fill in
-   the placeholders:
-   - the bundle path;
-   - the request, verbatim;
-   - the documents under review;
-   - the round number;
-   - from round 2 on, the previous Review records.
+2. Start the gate's reviewers in a review step (see Roles), with the
+   prompts from `KB guide prompts`. Fill in every placeholder listed at
+   the top of that guide. Take `{kb}`, `{bundle}`, and `{repo_root}` from
+   the pre-flight output, `{today}` from `KB now`, and from round 2 on
+   `{previous_review_paths}` from `reviews/`.
 
    Every round re-runs **all** of the gate's reviewers, so a fix for one
    reviewer is checked by the others, too.
 3. Write each reviewer's report to `reviews/<gate-file>-r<round>.md` as a
-   `Review` document (see the format reference). Copy the report verbatim
-   into the body, and set `verdict` to exactly what the report's
-   `# Verdict` says. The checker compares the two, and it rejects `pass`
-   while a blocking or major objection is open. The gate file names are:
+   `Review` document (see the format reference), with `KB write --new`.
+   Copy the report verbatim into the body, and set `verdict` to exactly
+   what the report's `# Verdict` says. The checker compares the two, and
+   it rejects `pass` while a blocking or major objection is open. The gate
+   file names are:
    - `plan-intent` and `plan-domain`: the two reviewers of the plan gate,
      which both use `gate: plan`;
    - `research-t<n>`;
@@ -238,9 +305,13 @@ Each phase ends with a gate. A gate runs like this:
    `blocking` or `major`. Minor objections can be deferred, but list them
    in the Review record's responses.
 5. **Revise:** handle every blocking and major objection.
-   - Either change the KB, or rebut the objection with evidence.
-   - Write a `# Responses` section into the Review record, one line per
-     objection: what you changed, or why you rejected the objection.
+   - Either change the KB, or rebut the objection with evidence. When you
+     change a stable document, also run `KB mark <bundle> <path> --status
+     draft --touch` (ground rule 7).
+   - Add the responses to the Review record with `KB append <bundle>
+     reviews/<file> --section Responses`, as a table with one line per
+     objection: what you changed, or why you rejected the objection. Never
+     rewrite the reviewer's report.
    - Fix research objections in one of two ways: continue the topic's
      researcher with the objections (SendMessage in Claude Code, if
      available), or fix them yourself. Say in the response which one you
@@ -253,9 +324,10 @@ Each phase ends with a gate. A gate runs like this:
    - A rebuttal only counts once the next round's reviewer accepts it.
 6. **After the last round**, if the gate still fails, follow ground rule 6.
 7. When a gate passes, do two things for every document that the gate
-   *owns* and that its passing round reviewed:
-   - add a `verified` event with the reviewer actor and the timestamp;
-   - set it to `status: stable`.
+   *owns* and that its passing round reviewed, in one call:
+   `KB mark <bundle> <paths…> --status stable --verified-by
+   evidence-kb-reviewer/<model>`. It sets `status: stable` and adds the
+   `verified` event with the current time.
 
    Which documents a gate owns:
    - `research:T<n>`: the topic's Findings and the Sources they cite;
@@ -265,37 +337,60 @@ Each phase ends with a gate. A gate runs like this:
    A passing later gate never makes documents of a failed gate stable.
    They stay `draft` until their own gate passes. The checker enforces
    this, and it also requires that the passing Review is not older than
-   the document's `generated.at`. Then add a line to `log.md` and report
-   progress (ground rule 11).
+   the document's `generated.at`. Then log the result with `KB log` and
+   report progress (ground rule 11).
 
 ## Phase 0: Set up
 
 1. Parse the options:
-   - `--out <dir>`: the bundle directory;
+   - `--out <dir>`: the bundle directory, inside the project;
    - `--max-rounds <n>`: the rounds per gate (default 3);
    - `--parallel <n>`: the number of researchers at a time (default 4);
    - `--max-topics <n>`: the most topics to research (default: no
      limit).
 
-   Everything else is the request. If the request is a path to a readable
-   file, use the file's content as the request.
-2. Check the prerequisites. If you have no web access, or `python3
-   --version` fails or reports a version below 3.9, stop and tell the user
-   what is missing. Don't start without them.
-3. Find the repository root (`git rev-parse --show-toplevel`). If that
-   fails, use the working directory, and say so in the brief.
-4. Choose the bundle directory:
+   Everything else is the request. If the request is a path to a file
+   inside the project, use the file's content as the request.
+2. **Without a topic**, resume an existing bundle: the one given with
+   `--out`, or the only one in the project (search for
+   `kb_profile: evidence-kb/1` in `brief.md` files). If there is no such
+   bundle, or more than one, stop and ask one short question: which topic
+   the knowledge base should cover (or, with several bundles, which
+   `--out` to resume). Ask the user to answer by invoking the skill again
+   with it, because a reply in this conversation would end the
+   pre-approvals. This is the one question of ground rule 1.
+3. Choose the bundle directory:
    1. `--out`, if given.
-   2. Otherwise, if the repository already has evidence-kb bundles (find
-      `brief.md` files that contain `kb_profile: evidence-kb/1`), place the
+   2. Otherwise, if the project already has evidence-kb bundles, place the
       new bundle next to them.
    3. Otherwise use `docs/knowledge/<slug>/`, where the slug is a short
-      kebab-case name of the topic.
-
-   If the directory exists but does not hold an evidence-kb bundle, do not
-   touch it. Choose `<slug>-2`, or the next free name.
-5. If the directory holds an evidence-kb bundle, read its brief, plan,
-   audit, `log.md`, and `reviews/`, then decide:
+      kebab-case name of the topic. The slug must not be `agents`,
+      `commands`, `hooks`, `instructions`, `output-styles`, `plugins`,
+      `prompts`, `rules`, or `skills` (tools load such directories as
+      components); add a suffix such as `-kb`.
+4. **Pre-flight.** Run `KB preflight <bundle>`. It prints the Python
+   version, the time, the skill directory, the project root, the absolute
+   bundle path, and the state of the bundle directory (`missing`, `empty`,
+   `kb`, or `foreign`).
+   - `foreign` means that the directory belongs to someone else. Run the
+     pre-flight again with the free name it suggests, and use that name.
+   - Stop and tell the user what is wrong if the command is denied or asks
+     for permission, or if it reports an error (exit status 1 or 2), such
+     as Python older than 3.9, no git repository, or a bundle path outside
+     the project or with hidden directories.
+5. Run `KB init <bundle>`. Then log the start with `KB log <bundle>
+   --kind Initialization` and the request, the options, and the cycle as
+   a heredoc (see Tools).
+6. **Tool check.** Run one WebSearch for the topic and one WebFetch of a
+   result. Then start one small general-purpose subagent with the shared
+   block for every subagent from `KB guide prompts`, and ask it to run
+   `{kb} now`, to read `{bundle}/log.md`, to run one WebSearch, and one
+   WebFetch, and to report each as OK or DENIED. If anything is denied or
+   asks for permission, stop and tell the user which tool it was. This is
+   the only point at which the skill stops because of the environment, so
+   that it never stalls in the middle of a run.
+7. If the bundle already existed (`kb`), read its brief, plan, audit,
+   `log.md`, and `reviews/`, then decide:
    - **Resume**, if the request is empty or is the request recorded in
      the brief. Continue after the last passed gate in the log, within the
      same cycle. A topic whose research gate has not passed is
@@ -308,12 +403,6 @@ Each phase ends with a gate. A gate runs like this:
      Revise the brief and plan, and run every gate again in the new cycle,
      but only for what the new request changes or adds. `--max-rounds`
      counts per cycle.
-6. If there is still nothing to work on (no topic and no bundle to
-   resume), ask the user for the topic. That is the one question of ground
-   rule 1.
-7. Create the bundle directory and `log.md`, or add to the existing log,
-   with an `**Initialization**` entry that names the request, the options,
-   and the cycle.
 
 ## Phase 1: Brief and plan
 
@@ -322,7 +411,8 @@ Each phase ends with a gate. A gate runs like this:
    project is, who uses it, where, and in which languages. Search the
    repository for material on the topic. Existing decisions and
    constraints in the repository count as evidence, too.
-2. **Write `brief.md`** (type `Research Brief`):
+2. Read the format reference with `KB guide format`, then **write
+   `brief.md`** (type `Research Brief`):
    - the request, verbatim;
    - the goal in your own words;
    - at least three possible readings of the request, the one you chose,
@@ -365,24 +455,27 @@ Each phase ends with a gate. A gate runs like this:
 
 ## Phase 2: Research, one topic at a time
 
-1. Start one researcher per topic, must-have topics first, at most
-   `--parallel` at a time. Use the researcher prompt, and give each one:
-   - the paths of the brief, the plan, and the format reference;
-   - its topic id.
+1. **Writing step.** Start one researcher per topic, must-have topics
+   first, at most `--parallel` at a time. Use the researcher prompt and
+   fill in its placeholders (`{kb}`, `{bundle}`, `{request}`, `{today}`,
+   `{topic_id}`, `{topic_dir}`).
 
    Researchers write only in `findings/t<n>-<slug>/` and in `references/`.
-   They never overwrite an existing Source. They reuse a Source that has
-   the same `resource`, and add quotes to it with an edit, which sets it
-   back to `draft`. They choose another id if the file name is taken by a
-   different resource.
-2. When a researcher reports back, run `check`. Fix the errors yourself,
-   or send them back to the researcher. The report lists any sub-questions
-   without an answer; these become `Gap:` statements in a Finding, or
-   gaps in the audit.
-3. **Run the gate `research:T<n>`** for each topic with the fact-checker
-   prompt. You can run the gates of different topics in parallel. The
-   fact-checker fetches every cited source again and checks every claim,
-   every quote, and the metadata.
+   They create files with `KB write --new`, which never overwrites. When a
+   Source with the same `resource` exists, they reuse it: they add their
+   quotes with `KB append … --section Evidence` and set it back to draft
+   with `KB mark … --status draft --touch`, so that no other researcher's
+   quotes or `verified` history get lost. They choose another id if the
+   file name is taken by a different resource.
+2. When all researchers of the step have reported back, run `KB check`.
+   Fix the errors yourself, or send them back to the researcher. Each
+   report lists any sub-questions without an answer; these become `Gap:`
+   statements in a Finding, or gaps in the audit.
+3. **Review step.** Run the gates `research:T<n>` of all topics researched
+   in this step together, with the fact-checker prompt (one fact-checker
+   per topic, in parallel). The fact-checker fetches every cited source
+   again and checks every claim, every quote, and the metadata. Fix the
+   objections in the next writing step, then review again.
 4. Research nice-to-have topics only after every must-have topic has gone
    through its gate.
 
@@ -408,7 +501,7 @@ Each phase ends with a gate. A gate runs like this:
 
 ## Phase 4: Audit
 
-1. Run `stats` and write `audit.md` (type `Research Audit`). It compares
+1. Run `KB stats` and write `audit.md` (type `Research Audit`). It compares
    what was found with the plan:
    - topics and questions covered;
    - source mix per topic;
@@ -423,20 +516,20 @@ Each phase ends with a gate. A gate runs like this:
    what it would take to close it. Fill in the frontmatter lists `gaps` and
    `unresolved`. In "Review independence", describe how independent the
    reviews really were.
-2. Run `index`, then `check`, and fix whatever it reports.
+2. Run `KB index`, then `KB check`, and fix whatever it reports.
 3. **Run the gate `final`** with the final reviewer. It judges the KB as a
    whole against the request, and it re-verifies a random sample of
    claims.
 4. After the gate has passed, or its last round has failed: update the
-   audit (add a failed final gate to `unresolved`), then run `index` and
-   `check --final`, and fix whatever they report. The final check
+   audit (add a failed final gate to `unresolved`), then run `KB index` and
+   `KB check --final`, and fix whatever they report. The final check
    requires a Review record for every gate, including `final`.
 
 ## Phase 5: Finish
 
-1. Run `index` and `check --final` one last time. Both must succeed.
+1. Run `KB index` and `KB check --final` one last time. Both must succeed.
    Otherwise, report the remaining problems.
-2. Add a `**Completion**` entry to `log.md`, with the gate results and the
+2. Add a `Completion` entry with `KB log`, with the gate results and the
    number of rounds.
 3. Report to the user in a few short paragraphs:
    - where the KB is and its entry point (`index.md`);

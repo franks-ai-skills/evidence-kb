@@ -1,6 +1,6 @@
 {
   "name": "evidence-kb",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Builds an evidence-based knowledge base about any topic in the repository, as an Open Knowledge Format (OKF) bundle, before implementation: plan, sourced findings, checkable recommendations, and an audit, with every phase challenged by independent reviewer subagents in a loop. Runs only when invoked explicitly.",
   "license": "AGPL-3.0-only",
   "repository": "https://github.com/franks-ai-skills/evidence-kb",

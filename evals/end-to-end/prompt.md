@@ -2,7 +2,7 @@
 max_turns: 400
 timeout_seconds: 5400
 runs: 1
-allowed_tools: [Read, Glob, Grep, Skill, Bash, Write, Edit, WebSearch, WebFetch, Agent]
+allowed_tools: [Read, Glob, Grep, Skill, Bash, WebSearch, WebFetch, Agent]
 tags: [e2e, expensive]
 ---
 

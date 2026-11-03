@@ -8,8 +8,10 @@ audit needs. Everything here is OKF-conformant: the extra keys are producer
 extensions (OKF §4.1), and OKF consumers that don't know them still read the
 bundle.
 
-`scripts/check_kb.py check` enforces this profile. Its error messages refer
-to the rules below.
+`kb.py check` (run as `python3 <skill dir>/scripts/kb.py check <bundle>`)
+enforces this profile. Its error messages refer to the rules below. Every
+file is written with `kb.py write`, `append`, `mark`, or `log`, never
+with an editor tool.
 
 **Language.** Titles, descriptions, and body text are written in the KB's
 language. These stay in English exactly as spelled here, whatever the KB's
@@ -46,8 +48,11 @@ language, because the checker and OKF consumers read them:
 - **Source ids** are `<publisher>-<short-title>[-<year>]`, are unique, and
   never change once they are cited. The id is the file name: the source
   `references/ietf-rfc-9110.md` has the id `ietf-rfc-9110`.
-- Generate the `index.md` files with `check_kb.py index`; don't edit them by
-  hand.
+- Generate the `index.md` files with `kb.py index`; `kb.py write`
+  refuses to write them.
+- Hidden files that `kb.py init` creates: `.evidence-kb` marks the
+  directory as an evidence-kb bundle; commit it. `.gitignore` excludes
+  `.evidence-kb-state/`, which holds review snapshots and the write lock.
 - **Paths:** in frontmatter (`sources[].resource`, `based_on`, `reviewed`),
   use the bundle-absolute form `/references/<id>.md`. In body links, use
   relative paths (`../../references/<id>.md`): OKF allows both, and only
@@ -481,7 +486,7 @@ the plan>
 
 # Source mix
 
-<the tables from `check_kb.py stats` (they use `##` headings, so they fit
+<the tables from `kb.py stats` (they use `##` headings, so they fit
 in this section), pasted unchanged, followed by your reading of them:
 share of primary sources; dating; age against max_age_months, read
 together with the "Undated" column, because undated sources cannot be

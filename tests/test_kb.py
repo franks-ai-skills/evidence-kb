@@ -1,4 +1,4 @@
-"""Tests for skills/evidence-kb/scripts/check_kb.py.
+"""Tests for skills/evidence-kb/scripts/kb.py.
 
 Run from the repository root:  python3 -m unittest discover -s tests -v
 """
@@ -11,6 +11,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -20,11 +21,11 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "skills" / "evidence-kb" / "scripts" / "check_kb.py"
+SCRIPT = ROOT / "skills" / "evidence-kb" / "scripts" / "kb.py"
 
-_spec = importlib.util.spec_from_file_location("check_kb", SCRIPT)
-check_kb = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(check_kb)
+_spec = importlib.util.spec_from_file_location("kb", SCRIPT)
+kb = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(kb)
 
 TODAY = dt.date(2026, 11, 3)
 GEN = "generated: { by: evidence-kb/claude-opus-5-5, at: 2026-11-03T10:00:00Z }"
@@ -356,9 +357,19 @@ def base_files():
 
 
 class BundleCase(unittest.TestCase):
+    """A bundle at <project>/kb, run from the project directory."""
+
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="evidence-kb-test-"))
-        self.addCleanup(shutil.rmtree, self.tmp)
+        self.proj = Path(tempfile.mkdtemp(prefix="evidence-kb-test-")) \
+            .resolve()
+        self.addCleanup(shutil.rmtree, self.proj)
+        (self.proj / ".git").mkdir()
+        old = os.getcwd()
+        os.chdir(self.proj)
+        self.addCleanup(os.chdir, old)
+        self.tmp = self.proj / "kb"
+        self.tmp.mkdir()
+        (self.tmp / ".evidence-kb").write_text("evidence-kb/1\n")
 
     def write(self, files):
         for rel, text in files.items():
@@ -376,8 +387,8 @@ class BundleCase(unittest.TestCase):
             self.run_cli("index", str(self.tmp))
 
     def problems(self, final=False):
-        bundle = check_kb.load_bundle(self.tmp)
-        check_kb.Checker(bundle, TODAY, final=final).run()
+        bundle = kb.load_bundle(self.tmp)
+        kb.Checker(bundle, TODAY, final=final).run()
         return bundle.problems
 
     def errors(self, final=False):
@@ -402,7 +413,7 @@ class BundleCase(unittest.TestCase):
     def run_cli(self, *args):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
-            code = check_kb.main(list(args))
+            code = kb.main(list(args))
         return code, out.getvalue(), err.getvalue()
 
 
@@ -410,7 +421,7 @@ class BundleCase(unittest.TestCase):
 
 class YamlSubset(unittest.TestCase):
     def parse(self, text):
-        return check_kb.parse_yaml(d(text))[0]
+        return kb.parse_yaml(d(text))[0]
 
     def test_scalars(self):
         data = self.parse("""
@@ -513,7 +524,7 @@ class YamlSubset(unittest.TestCase):
         self.assertEqual(data["description"], "a long wrapped value")
 
     def test_key_lines(self):
-        _, lines = check_kb.parse_yaml("a: 1\n\nb:\n  - x\nc: 2", 2)
+        _, lines = kb.parse_yaml("a: 1\n\nb:\n  - x\nc: 2", 2)
         self.assertEqual(lines, {"a": 2, "b": 4, "c": 6})
 
     def test_errors(self):
@@ -534,37 +545,37 @@ class YamlSubset(unittest.TestCase):
         }
         for text, fragment in cases.items():
             with self.subTest(text=text):
-                with self.assertRaises(check_kb.YamlError) as ctx:
-                    check_kb.parse_yaml(text)
+                with self.assertRaises(kb.YamlError) as ctx:
+                    kb.parse_yaml(text)
                 self.assertIn(fragment, ctx.exception.message)
 
     def test_split_frontmatter(self):
-        fm, body, line = check_kb.split_frontmatter("---\na: 1\n---\nbody\n")
+        fm, body, line = kb.split_frontmatter("---\na: 1\n---\nbody\n")
         self.assertEqual((fm, body, line), ("a: 1", "body\n", 4))
-        self.assertEqual(check_kb.split_frontmatter("no fm")[0], None)
-        with self.assertRaises(check_kb.YamlError):
-            check_kb.split_frontmatter("---\na: 1\n")
+        self.assertEqual(kb.split_frontmatter("no fm")[0], None)
+        with self.assertRaises(kb.YamlError):
+            kb.split_frontmatter("---\na: 1\n")
 
 
 class DateHelpers(unittest.TestCase):
     def test_partial_dates(self):
-        self.assertEqual(check_kb.partial_date_end("2024"),
+        self.assertEqual(kb.partial_date_end("2024"),
                          dt.date(2024, 12, 31))
-        self.assertEqual(check_kb.partial_date_end("2024-02"),
+        self.assertEqual(kb.partial_date_end("2024-02"),
                          dt.date(2024, 2, 29))
-        self.assertEqual(check_kb.partial_date_end("2024-12"),
+        self.assertEqual(kb.partial_date_end("2024-12"),
                          dt.date(2024, 12, 31))
-        self.assertIsNone(check_kb.partial_date_end("2024-13"))
-        self.assertIsNone(check_kb.partial_date_end("2024-02-30"))
-        self.assertIsNone(check_kb.partial_date_end("May 2024"))
+        self.assertIsNone(kb.partial_date_end("2024-13"))
+        self.assertIsNone(kb.partial_date_end("2024-02-30"))
+        self.assertIsNone(kb.partial_date_end("May 2024"))
 
     def test_timestamps(self):
-        self.assertIsNotNone(check_kb.parse_timestamp("2026-01-01T00:00:00Z"))
+        self.assertIsNotNone(kb.parse_timestamp("2026-01-01T00:00:00Z"))
         self.assertIsNotNone(
-            check_kb.parse_timestamp("2026-01-01T00:00+02:00"))
-        self.assertIsNone(check_kb.parse_timestamp("2026-01-01"))
-        self.assertIsNone(check_kb.parse_timestamp("2026-01-01T00:00:00"))
-        self.assertIsNone(check_kb.parse_timestamp("2026-02-30T00:00:00Z"))
+            kb.parse_timestamp("2026-01-01T00:00+02:00"))
+        self.assertIsNone(kb.parse_timestamp("2026-01-01"))
+        self.assertIsNone(kb.parse_timestamp("2026-01-01T00:00:00"))
+        self.assertIsNone(kb.parse_timestamp("2026-02-30T00:00:00Z"))
 
 
 # --------------------------------------------------------------------------
@@ -986,8 +997,8 @@ class TrustRules(BundleCase):
 
     def test_directory_and_source_coverage(self):
         self.make()
-        bundle = check_kb.load_bundle(self.tmp)
-        checker = check_kb.Checker(bundle, TODAY, final=True)
+        bundle = kb.load_bundle(self.tmp)
+        checker = kb.Checker(bundle, TODAY, final=True)
         checker.run()
         covered = checker.covered_by_passing_reviews()
         self.assertIn("findings/t1-retry-semantics/idempotent-methods.md",
@@ -1063,8 +1074,8 @@ class TrustRules(BundleCase):
 class Stats(BundleCase):
     def test_stats_numbers(self):
         self.make()
-        bundle = check_kb.load_bundle(self.tmp)
-        stats = check_kb.compute_stats(bundle, TODAY)
+        bundle = kb.load_bundle(self.tmp)
+        stats = kb.compute_stats(bundle, TODAY)
         ov = stats["overall"]
         self.assertEqual(ov["sources"], 2)
         self.assertEqual(ov["dated"], 2)
@@ -1090,14 +1101,14 @@ class Stats(BundleCase):
     def test_max_age(self):
         self.make({"plan.md": PLAN.replace("max_age_months: 120",
                                            "max_age_months: 24")})
-        stats = check_kb.compute_stats(check_kb.load_bundle(self.tmp), TODAY)
+        stats = kb.compute_stats(kb.load_bundle(self.tmp), TODAY)
         self.assertEqual(stats["topics"]["T1"]["older_than_max_age"],
                          ["references/rfc-9110.md"])
 
     def test_undated_source(self):
         self.make({"references/rfc-9110.md": SOURCE.replace(
             "published: 2022-06", "published: unknown")})
-        stats = check_kb.compute_stats(check_kb.load_bundle(self.tmp), TODAY)
+        stats = kb.compute_stats(kb.load_bundle(self.tmp), TODAY)
         self.assertEqual(stats["overall"]["age"]["unknown"], 1)
         self.assertEqual(stats["overall"]["dated"], 1)
 
@@ -1185,7 +1196,7 @@ class YamlRegressions(unittest.TestCase):
     """Inputs that agents write and that earlier versions mis-parsed."""
 
     def parse(self, text):
-        return check_kb.parse_yaml(d(text))[0]
+        return kb.parse_yaml(d(text))[0]
 
     def test_comment_with_apostrophe_after_flow(self):
         data = self.parse("""
@@ -1279,8 +1290,8 @@ class YamlRegressions(unittest.TestCase):
         }
         for text, fragment in cases.items():
             with self.subTest(text=text[:20]):
-                with self.assertRaises(check_kb.YamlError) as ctx:
-                    check_kb.parse_yaml(text)
+                with self.assertRaises(kb.YamlError) as ctx:
+                    kb.parse_yaml(text)
                 self.assertIn(fragment, ctx.exception.message)
 
     def test_more_escapes(self):
@@ -1290,13 +1301,13 @@ class YamlRegressions(unittest.TestCase):
         self.assertEqual(data["a"], "A\u00e9\U0001F600\x1b")
 
     def test_yaml11_boolean_notes(self):
-        _, _, _, notes = check_kb.parse_yaml_full("country: NO\n"
+        _, _, _, notes = kb.parse_yaml_full("country: NO\n"
                                                   "language: 'no'\n"
                                                   "x: [yes]\n")
         self.assertEqual([n[0] for n in notes], [1, 3])
 
     def test_item_lines(self):
-        data, _, items, _ = check_kb.parse_yaml_full(
+        data, _, items, _ = kb.parse_yaml_full(
             "topics:\n  - id: T1\n    title: a\n  - { id: T2 }\n", 2)
         self.assertEqual(items[id(data["topics"][0])], 3)
         self.assertEqual(items[id(data["topics"][1])], 5)
@@ -1329,7 +1340,7 @@ class YamlRegressions(unittest.TestCase):
         ]
         for text in corpus:
             with self.subTest(text=text):
-                ours = json.loads(json.dumps(check_kb.parse_yaml(text)[0]))
+                ours = json.loads(json.dumps(kb.parse_yaml(text)[0]))
                 theirs = json.loads(json.dumps(yaml.safe_load(text)))
                 self.assertEqual(ours, theirs)
 
@@ -1387,13 +1398,13 @@ class Robustness(BundleCase):
         self.assertError("has 2 reviews for round 1")
 
     def test_internal_errors_are_reported_not_raised(self):
-        original = check_kb.compute_stats
-        check_kb.compute_stats = lambda *a: 1 / 0
+        original = kb.compute_stats
+        kb.compute_stats = lambda *a: 1 / 0
         try:
             self.make()
             code, _, err = self.run_cli("stats", str(self.tmp))
         finally:
-            check_kb.compute_stats = original
+            kb.compute_stats = original
         self.assertEqual(code, 2)
         self.assertIn("internal error (ZeroDivisionError", err)
 
@@ -1415,9 +1426,9 @@ class Robustness(BundleCase):
 
     def test_timestamp_fraction_on_all_versions(self):
         self.assertIsNotNone(
-            check_kb.parse_timestamp("2026-01-31T12:00:00.5Z"))
+            kb.parse_timestamp("2026-01-31T12:00:00.5Z"))
         self.assertIsNotNone(
-            check_kb.parse_timestamp("2026-01-31T12:00:00.1234567+01:00"))
+            kb.parse_timestamp("2026-01-31T12:00:00.1234567+01:00"))
 
     def test_item_line_in_diagnostics(self):
         bad = PLAN.replace("priority: nice", "priority: later")
@@ -1470,20 +1481,21 @@ class IndexSafety(BundleCase):
             self.skipTest("symlinks not supported")
         code, _, err = self.run_cli("index", str(self.tmp))
         self.assertEqual(code, 1)
-        self.assertIn("refusing to write", err)
+        self.assertIn("symbolic link", err)
         self.assertEqual(victim.read_text(), "keep me")
 
     def test_index_refuses_non_bundle(self):
-        (self.tmp / "docs").mkdir()
+        other = self.proj / "site"
+        (other / "docs").mkdir(parents=True)
         page = "---\ntitle: Home\n---\n\nHand-written.\n"
-        (self.tmp / "docs" / "index.md").write_text(page)
-        (self.tmp / "docs" / "guide.md").write_text(
+        (other / "docs" / "index.md").write_text(page)
+        (other / "docs" / "guide.md").write_text(
             "---\ntype: Guide\ntitle: G\n---\n")
-        code, _, err = self.run_cli("index", str(self.tmp))
+        code, _, err = self.run_cli("index", str(other))
         self.assertEqual(code, 2)
         self.assertIn("not an evidence-kb bundle", err)
-        self.assertEqual((self.tmp / "docs" / "index.md").read_text(), page)
-        self.assertFalse((self.tmp / "index.md").exists())
+        self.assertEqual((other / "docs" / "index.md").read_text(), page)
+        self.assertFalse((other / "index.md").exists())
 
     def test_index_stops_on_parse_errors(self):
         self.make()
@@ -1539,10 +1551,10 @@ class RoundTwoRegressions(BundleCase):
     def test_inline_code_is_linear(self):
         import time
         start = time.time()
-        check_kb.strip_inline_code("`" * 5000 + "a")
-        check_kb.strip_inline_code("`a" * 5000)
+        kb.strip_inline_code("`" * 5000 + "a")
+        kb.strip_inline_code("`a" * 5000)
         self.assertLess(time.time() - start, 1)
-        self.assertEqual(check_kb.strip_inline_code("a `x` b ``y`z`` c `"),
+        self.assertEqual(kb.strip_inline_code("a `x` b ``y`z`` c `"),
                          "a  b  c `")
 
     def test_more_wrong_types(self):
@@ -1583,14 +1595,684 @@ class RoundTwoRegressions(BundleCase):
                              for e in errs), errs)
 
     def test_numbers_like_pyyaml(self):
-        data = check_kb.parse_yaml("a: 08\nb: 1e3\nc: 0\nd: -7\ne: 1.5\n")[0]
+        data = kb.parse_yaml("a: 08\nb: 1e3\nc: 0\nd: -7\ne: 1.5\n")[0]
         self.assertEqual(data, {"a": "08", "b": "1e3", "c": 0, "d": -7,
                                 "e": 1.5})
 
     def test_escaped_line_break(self):
-        data = check_kb.parse_yaml('a: "x\\\n  y"\nb: "p\\\\\n  q"\n')[0]
+        data = kb.parse_yaml('a: "x\\\n  y"\nb: "p\\\\\n  q"\n')[0]
         self.assertEqual(data["a"], "xy")
         self.assertEqual(data["b"], "p\\ q")
+
+
+
+class WorkspaceCommands(unittest.TestCase):
+    """init, write, mark, log, guide, now, root, preflight."""
+
+    def setUp(self):
+        self.proj = Path(tempfile.mkdtemp(prefix="evidence-kb-proj-")).resolve()
+        self.addCleanup(shutil.rmtree, self.proj)
+        (self.proj / ".git").mkdir()
+        old = os.getcwd()
+        os.chdir(self.proj)
+        self.addCleanup(os.chdir, old)
+        self.kb = self.proj / "docs" / "kb"
+
+    def cli(self, *args, stdin=""):
+        out, err = io.StringIO(), io.StringIO()
+        fake = io.TextIOWrapper(io.BytesIO(stdin.encode("utf-8")),
+                                encoding="utf-8")
+        old_stdin = sys.stdin
+        sys.stdin = fake
+        try:
+            with redirect_stdout(out), redirect_stderr(err):
+                code = kb.main(list(args))
+        finally:
+            sys.stdin = old_stdin
+        return code, out.getvalue(), err.getvalue()
+
+    def init(self):
+        code, out, err = self.cli("init", "docs/kb")
+        self.assertEqual(code, 0, err)
+        return out
+
+    def test_init_creates_marker_and_is_idempotent(self):
+        self.assertIn("created", self.init())
+        self.assertTrue((self.kb / ".evidence-kb").is_file())
+        self.assertIn("existing", self.init())
+
+    def test_init_refuses_foreign_directory(self):
+        self.kb.mkdir(parents=True)
+        (self.kb / "notes.md").write_text("mine")
+        code, _, err = self.cli("init", "docs/kb")
+        self.assertEqual(code, 2)
+        self.assertIn("left untouched", err)
+        self.assertIn("docs/kb-2", err)
+        self.assertEqual(os.listdir(self.kb), ["notes.md"])
+
+    def test_init_adopts_1_0_bundle(self):
+        self.kb.mkdir(parents=True)
+        (self.kb / "brief.md").write_text(BRIEF)
+        self.assertIn("existing", self.init())
+
+    def test_bundle_must_be_inside_project(self):
+        outside = Path(tempfile.mkdtemp(prefix="evidence-kb-out-"))
+        self.addCleanup(shutil.rmtree, outside)
+        for arg in (str(outside / "kb"), "../escape", "."):
+            with self.subTest(arg=arg):
+                code, _, err = self.cli("init", arg)
+                self.assertEqual(code, 2)
+                self.assertTrue("outside the project" in err or
+                                "subdirectory of the project" in err, err)
+
+    def test_write_and_validation(self):
+        self.init()
+        code, out, _ = self.cli("write", "docs/kb", "references/rfc-9110.md",
+                                "--new", stdin=SOURCE)
+        self.assertEqual(code, 0)
+        self.assertEqual((self.kb / "references/rfc-9110.md").read_text(),
+                         SOURCE)
+        code, _, err = self.cli("write", "docs/kb", "references/rfc-9110.md",
+                                "--new", stdin=SOURCE)
+        self.assertEqual(code, 1)
+        self.assertIn("already exists", err)
+        code, _, err = self.cli("write", "docs/kb", "references/x.md",
+                                stdin="---\ntitle: a: b\n---\n")
+        self.assertEqual(code, 1)
+        self.assertIn("not written", err)
+        self.assertFalse((self.kb / "references/x.md").exists())
+        code, _, err = self.cli("write", "docs/kb", "references/y.md",
+                                stdin="# no frontmatter\n")
+        self.assertEqual(code, 1)
+        code, _, err = self.cli("write", "docs/kb", "log.md",
+                                stdin="# Log\n")
+        self.assertEqual(code, 2)
+        self.assertIn("only with `kb.py log`", err)
+
+    def test_write_path_rules(self):
+        self.init()
+        bad = ["../escape.md", "/../../x.md", "references/My File.md",
+               "references/x.txt", "index.md", "findings/index.md", ""]
+        for rel in bad:
+            with self.subTest(rel=rel):
+                code, _, _ = self.cli("write", "docs/kb", rel, stdin=SOURCE)
+                self.assertEqual(code, 2)
+        self.assertEqual(sorted(p.name for p in self.kb.rglob("*")),
+                         [".evidence-kb", ".gitignore"])
+
+    def test_write_requires_bundle(self):
+        code, _, err = self.cli("write", "docs/kb", "brief.md", stdin=BRIEF)
+        self.assertEqual(code, 2)
+        self.assertIn("run `kb.py init` first", err)
+
+    def test_write_refuses_symlinks(self):
+        self.init()
+        outside = Path(tempfile.mkdtemp(prefix="evidence-kb-out-"))
+        self.addCleanup(shutil.rmtree, outside)
+        try:
+            (self.kb / "references").symlink_to(outside)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks not supported")
+        code, _, err = self.cli("write", "docs/kb", "references/a.md",
+                                stdin=SOURCE)
+        self.assertEqual(code, 2)
+        self.assertIn("symbolic link", err)
+        self.assertEqual(os.listdir(outside), [])
+
+    def test_mark(self):
+        self.init()
+        draft = FINDING.replace("status: stable", "status: draft").replace(
+            "verified:\n  - { by: evidence-kb-reviewer/claude-opus-5-5, "
+            "at: 2026-11-03T11:00:00Z }\n", "")
+        self.cli("write", "docs/kb", "findings/t1-x/a.md", stdin=draft)
+        code, _, err = self.cli("mark", "docs/kb", "findings/t1-x/a.md",
+                                "--status", "stable", "--verified-by",
+                                "evidence-kb-reviewer/m")
+        self.assertEqual(code, 0, err)
+        meta = kb.parse_yaml(kb.split_frontmatter(
+            (self.kb / "findings/t1-x/a.md").read_text())[0])[0]
+        self.assertEqual(meta["status"], "stable")
+        self.assertEqual(meta["verified"][-1]["by"], "evidence-kb-reviewer/m")
+        # second event appends to the block list
+        self.cli("mark", "docs/kb", "findings/t1-x/a.md", "--verified-by",
+                 "evidence-kb-reviewer/n")
+        meta = kb.parse_yaml(kb.split_frontmatter(
+            (self.kb / "findings/t1-x/a.md").read_text())[0])[0]
+        self.assertEqual([e["by"] for e in meta["verified"]],
+                         ["evidence-kb-reviewer/m", "evidence-kb-reviewer/n"])
+        # touch + draft
+        code, _, _ = self.cli("mark", "docs/kb", "findings/t1-x/a.md",
+                              "--status", "draft", "--touch")
+        meta = kb.parse_yaml(kb.split_frontmatter(
+            (self.kb / "findings/t1-x/a.md").read_text())[0])[0]
+        self.assertEqual(meta["status"], "draft")
+        self.assertNotEqual(meta["generated"]["at"], "2026-11-03T10:00:00Z")
+        self.assertEqual(meta["generated"]["by"],
+                         "evidence-kb/claude-opus-5-5")
+
+    def test_mark_text_forms(self):
+        base = "---\ntype: Source\ntitle: T\n%s---\n\nBody\n"
+        now = "2026-11-03T12:00:00Z"
+        cases = {
+            "verified: { by: a/b, at: 2026-01-01T00:00:00Z }\n": 2,
+            "verified: [{ by: a/b, at: 2026-01-01T00:00:00Z }]\n": 2,
+            "verified: []\n": 1,
+            "verified:\n- { by: a/b, at: 2026-01-01T00:00:00Z }\n": 2,
+            "": 1,
+        }
+        for extra, count in cases.items():
+            with self.subTest(extra=extra):
+                out = kb.mark_text(base % extra, verified_by="r/x", now=now)
+                meta = kb.parse_yaml(kb.split_frontmatter(out)[0])[0]
+                self.assertEqual(len(kb.as_list(meta["verified"])), count)
+                self.assertEqual(kb.as_list(meta["verified"])[-1],
+                                 {"by": "r/x", "at": now})
+                self.assertTrue(out.endswith("---\n\nBody\n"))
+
+    def test_mark_refuses_human_and_bad_input(self):
+        self.init()
+        self.cli("write", "docs/kb", "references/a.md", stdin=SOURCE)
+        code, _, err = self.cli("mark", "docs/kb", "references/a.md",
+                                "--verified-by", "human:frank")
+        self.assertEqual(code, 2)
+        self.assertIn("by hand", err)
+        code, _, err = self.cli("mark", "docs/kb", "references/nope.md",
+                                "--status", "draft")
+        self.assertEqual(code, 2)
+        self.assertIn("does not exist", err)
+        code, _, _ = self.cli("mark", "docs/kb", "references/a.md")
+        self.assertEqual(code, 2)
+
+    def test_log(self):
+        self.init()
+        self.cli("log", "docs/kb", "--kind", "Initialization", "--message", "Started.")
+        self.cli("log", "docs/kb", "--kind", "Review", "--message", "Gate plan passed.")
+        text = (self.kb / "log.md").read_text()
+        self.assertTrue(text.startswith("# Log\n\n## "))
+        self.assertLess(text.index("**Review**"),
+                        text.index("**Initialization**"))
+        self.assertEqual(text.count("## "), 1)
+        # an older day stays below a new day
+        (self.kb / "log.md").write_text("# Log\n\n## 2026-01-01\n\n"
+                                        "* **Note**: old\n")
+        self.cli("log", "docs/kb", "--kind", "Review", "--message", "new")
+        text = (self.kb / "log.md").read_text()
+        self.assertLess(text.index("new"), text.index("2026-01-01"))
+        self.assertEqual(self.cli("log", "docs/kb", "--kind", "bad kind", "--message", "x")[0], 2)
+
+    def test_written_bundle_passes_check(self):
+        self.init()
+        for rel, text in base_files().items():
+            if rel == "log.md":
+                continue
+            code, _, err = self.cli("write", "docs/kb", rel, stdin=text)
+            self.assertEqual(code, 0, (rel, err))
+        self.cli("log", "docs/kb", "--kind", "Initialization",
+                 "--message", "Started.")
+        self.assertEqual(self.cli("index", "docs/kb")[0], 0)
+        code, _, err = self.cli("check", "docs/kb", "--final", "--today",
+                                "2026-11-03")
+        self.assertEqual(code, 0, err)
+
+    def test_guide_now_root_preflight(self):
+        code, out, _ = self.cli("guide", "format")
+        self.assertEqual(code, 0)
+        self.assertIn("# Bundle format", out)
+        self.assertIn("Subagent prompts", self.cli("guide", "prompts")[1])
+        self.assertEqual(self.cli("guide", "nope")[0], 2)
+        self.assertRegex(self.cli("now")[1].strip(),
+                         r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+        self.assertEqual(self.cli("root")[1].strip(), str(self.proj))
+        code, out, _ = self.cli("preflight", "docs/kb")
+        self.assertEqual(code, 0)
+        self.assertIn("state: missing", out)
+        self.kb.mkdir(parents=True)
+        (self.kb / "x.md").write_text("x")
+        code, out, _ = self.cli("preflight", "docs/kb")
+        self.assertEqual(code, 0)
+        self.assertIn("state: foreign", out)
+        self.assertIn("free name instead: %s" % (self.proj / "docs" / "kb-2"),
+                      out)
+
+    def test_skill_frontmatter_preapproves_only_kb_py_and_web(self):
+        text = (ROOT / "skills" / "evidence-kb" / "SKILL.md").read_text()
+        meta = kb.parse_yaml(kb.split_frontmatter(text)[0])[0]
+        self.assertEqual(" ".join(meta["allowed-tools"].split()),
+                         "Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/kb.py *) "
+                         "WebSearch WebFetch")
+
+
+class BoundaryRegressions(WorkspaceCommands):
+    """Findings of the 1.1.0 security review."""
+
+    def test_hidden_and_config_bundle_paths_are_refused(self):
+        for arg in (".claude/commands", ".claude/agents/kb", ".git/kb",
+                    "docs/.hidden", "docs/kb/.x", "docs/con", "docs/a b"):
+            with self.subTest(arg=arg):
+                code, _, err = self.cli("init", arg)
+                self.assertEqual(code, 2, err)
+        self.assertFalse((self.proj / ".claude").exists())
+        self.assertEqual(os.listdir(self.proj / ".git"), [])
+
+    def test_newline_names_are_refused(self):
+        self.init()
+        code, _, _ = self.cli("write", "docs/kb", "refs\n/x.md", stdin=SOURCE)
+        self.assertEqual(code, 2)
+        self.assertEqual(self.cli("log", "docs/kb", "--kind", "Review\n", "--message", "x")[0], 2)
+        self.assertIsNone(kb.ACTOR_RE.match("a/b\n"))
+
+    def test_write_refuses_new_human_events(self):
+        self.init()
+        human = SOURCE.replace("evidence-kb-reviewer/claude-opus-5-5",
+                               "human:frank")
+        code, _, err = self.cli("write", "docs/kb", "references/a.md",
+                                "--new", stdin=human)
+        self.assertEqual(code, 1)
+        self.assertIn("only be added by the person", err)
+        # a human event that is already on disk may be kept
+        target = self.kb / "references" / "a.md"
+        target.parent.mkdir(parents=True)
+        target.write_text(human)
+        code, _, err = self.cli("write", "docs/kb", "references/a.md",
+                                stdin=human.replace("# Evidence",
+                                                    "# Evidence\n\n> more"))
+        self.assertEqual(code, 0, err)
+
+    def test_read_commands_are_confined_to_the_project(self):
+        self.init()
+        outside = Path(tempfile.mkdtemp(prefix="evidence-kb-out-"))
+        self.addCleanup(shutil.rmtree, outside)
+        (outside / ".evidence-kb").write_text("evidence-kb/1\n")
+        for cmd in (["fingerprint", str(outside), "--files"],
+                    ["index", str(outside)], ["check", str(outside)],
+                    ["stats", str(outside)], ["snapshot", str(outside)]):
+            with self.subTest(cmd=cmd[0]):
+                code, _, err = self.cli(*cmd)
+                self.assertEqual(code, 2)
+                self.assertTrue("outside the project" in err or
+                                "not inside a git repository" in err, err)
+        self.assertEqual(sorted(os.listdir(outside)), [".evidence-kb"])
+
+    def test_symlinked_bundle_root_is_refused(self):
+        outside = Path(tempfile.mkdtemp(prefix="evidence-kb-out-"))
+        self.addCleanup(shutil.rmtree, outside)
+        (outside / ".evidence-kb").write_text("evidence-kb/1\n")
+        (outside / "sub").mkdir()
+        (outside / "sub" / "a.md").write_text("---\ntype: X\ntitle: a\n---\n")
+        try:
+            (self.proj / "link").symlink_to(outside)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks not supported")
+        code, _, err = self.cli("index", "link")
+        self.assertEqual(code, 2)
+        self.assertIn("symbolic link", err)
+        self.assertFalse((outside / "sub" / "index.md").exists())
+
+    def test_outside_any_repository_is_refused(self):
+        bare = Path(tempfile.mkdtemp(prefix="evidence-kb-bare-")).resolve()
+        self.addCleanup(shutil.rmtree, bare)
+        os.chdir(bare)
+        for cmd in (["root"], ["init", "kb"], ["preflight", "kb"]):
+            with self.subTest(cmd=cmd[0]):
+                code, out, err = self.cli(*cmd)
+                self.assertNotEqual(code, 0)
+                self.assertIn("not inside a git repository", err)
+        self.assertEqual(os.listdir(bare), [])
+
+    def test_concurrent_new_writes(self):
+        import threading
+        self.init()
+        (self.kb / "references").mkdir()
+        target = self.kb / "references" / "race.md"
+        results = []
+
+        def attempt(n):
+            try:
+                kb.write_new(target, SOURCE + "<!-- %d -->\n" % n)
+                results.append(n)
+            except FileExistsError:
+                pass
+
+        threads = [threading.Thread(target=attempt, args=(n,))
+                   for n in range(12)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(len(results), 1)
+        self.assertTrue(target.read_text().endswith(
+            "<!-- %d -->\n" % results[0]))
+        self.assertEqual([p.name for p in target.parent.iterdir()],
+                         ["race.md"])
+
+    def test_stdin_limits(self):
+        self.init()
+        old = sys.stdin
+        sys.stdin = None
+        try:
+            with redirect_stderr(io.StringIO()) as err:
+                code = kb.main(["write", "docs/kb", "references/a.md"])
+        finally:
+            sys.stdin = old
+        self.assertEqual(code, 2)
+        self.assertIn("no content on standard input", err.getvalue())
+        big = "---\ntype: Source\ntitle: t\n---\n"
+        big += "x" * (kb.MAX_FILE_BYTES - len(big))
+        code, _, err = self.cli("write", "docs/kb", "references/b.md",
+                                stdin=big)
+        self.assertEqual(code, 2)
+        self.assertIn("larger than", err)
+
+    def test_permissions_are_kept(self):
+        self.init()
+        self.cli("write", "docs/kb", "references/a.md", stdin=SOURCE)
+        target = self.kb / "references" / "a.md"
+        os.chmod(target, 0o600)
+        self.cli("write", "docs/kb", "references/a.md", stdin=SOURCE + "x\n")
+        self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o600)
+
+    def test_log_from_stdin_with_shell_characters(self):
+        self.init()
+        msg = 'Request: use `bcrypt`? $(rm -rf /) "quoted" it\'s'
+        code, _, err = self.cli("log", "docs/kb", "--kind", "Initialization",
+                                stdin=msg + "\n")
+        self.assertEqual(code, 0, err)
+        self.assertIn(msg, (self.kb / "log.md").read_text())
+
+    def test_log_ignores_code_and_future_dates(self):
+        self.init()
+        today = dt.datetime.now(dt.timezone.utc).date().isoformat()
+        (self.kb / "log.md").write_text(
+            "# Log\n\n```\n## 2020-01-01\n```\n\n## 2999-01-01\n\n"
+            "* **Note**: future\n\n## 2020-02-02\n\n* **Note**: old\n")
+        self.cli("log", "docs/kb", "--kind", "Review", "--message", "new entry")
+        text = (self.kb / "log.md").read_text()
+        self.assertEqual(text.count("## " + today), 1)
+        self.assertLess(text.index("2999-01-01"), text.index("## " + today))
+        self.assertLess(text.index("new entry"), text.index("2020-02-02"))
+        self.assertLess(text.index("```\n## 2020-01-01\n```"),
+                        text.index("new entry"))
+
+    def test_mark_refuses_invalid_frontmatter_and_keeps_comments(self):
+        self.init()
+        target = self.kb / "references" / "a.md"
+        target.parent.mkdir(parents=True)
+        bad = "---\ntype: Source\nstatus: draft\n\tfoo: 1\nb: 2\n---\n"
+        target.write_text(bad)
+        code, _, err = self.cli("mark", "docs/kb", "references/a.md",
+                                "--status", "stable")
+        self.assertEqual(code, 1)
+        self.assertEqual(target.read_text(), bad)
+        good = ("\ufeff---\ntype: Source\nstatus: draft  # reviewed soon\n"
+                "verified:\n# history follows\ngenerated: { by: a/b, at: "
+                "2026-01-01T00:00:00Z }\n---\n\nBody\n")
+        target.write_text(good, encoding="utf-8")
+        code, _, err = self.cli("mark", "docs/kb", "references/a.md",
+                                "--status", "stable", "--verified-by",
+                                "evidence-kb-reviewer/m")
+        self.assertEqual(code, 0, err)
+        text = target.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("\ufeff---"))
+        self.assertIn("status: stable  # reviewed soon", text)
+        self.assertIn("# history follows", text)
+        meta = kb.parse_yaml(kb.split_frontmatter(text)[0])[0]
+        self.assertEqual(meta["verified"], [{"by": "evidence-kb-reviewer/m",
+                                             "at": meta["verified"][0]["at"]}])
+
+    def test_deep_block_nesting_is_an_error(self):
+        text = "a:\n" + "".join("  " * i + "b%d:\n" % i
+                                for i in range(1, 200))
+        with self.assertRaises(kb.YamlError) as ctx:
+            kb.parse_yaml(text)
+        self.assertIn("nested too deeply", ctx.exception.message)
+
+    def test_snapshot_compare_restore(self):
+        self.init()
+        self.cli("write", "docs/kb", "references/a.md", stdin=SOURCE)
+        code, sid, _ = self.cli("snapshot", "docs/kb")
+        sid = sid.strip()
+        self.assertEqual(code, 0)
+        self.assertRegex(sid, r"^[0-9a-f]{64}$")
+        self.assertEqual(self.cli("compare", "docs/kb", sid)[0], 0)
+        # a "reviewer" changes, adds, and re-snapshots
+        self.cli("write", "docs/kb", "references/a.md", stdin=SOURCE + "x\n")
+        self.cli("write", "docs/kb", "references/evil.md", stdin=SOURCE)
+        self.cli("snapshot", "docs/kb")
+        code, out, _ = self.cli("compare", "docs/kb", sid)
+        self.assertEqual(code, 1)
+        self.assertIn("changed references/a.md", out)
+        self.assertIn("added references/evil.md", out)
+        code, out, _ = self.cli("restore", "docs/kb", sid)
+        self.assertEqual(code, 0)
+        self.assertFalse((self.kb / "references" / "evil.md").exists())
+        self.assertEqual((self.kb / "references" / "a.md").read_text(),
+                         SOURCE)
+        self.assertEqual(self.cli("compare", "docs/kb", sid)[0], 0)
+
+    def test_tampered_snapshot_is_detected(self):
+        self.init()
+        self.cli("write", "docs/kb", "references/a.md", stdin=SOURCE)
+        sid = self.cli("snapshot", "docs/kb")[1].strip()
+        base = self.kb / ".evidence-kb-state" / "snapshots" / sid
+        copy = base / "files" / "references" / "a.md"
+        copy.write_text("tampered")
+        code, _, err = self.cli("compare", "docs/kb", sid)
+        self.assertEqual(code, 2)
+        self.assertIn("altered", err)
+        (base / "manifest.json").write_text("{}")
+        self.assertIn("altered", self.cli("restore", "docs/kb", sid)[2])
+        self.assertIn("does not exist",
+                      self.cli("compare", "docs/kb", "0" * 64)[2])
+
+    def test_append(self):
+        self.init()
+        self.cli("write", "docs/kb", "references/a.md", stdin=SOURCE)
+        code, _, err = self.cli("append", "docs/kb", "references/a.md",
+                                "--section", "Evidence",
+                                stdin="> second quote (p. 2)\n")
+        self.assertEqual(code, 0, err)
+        code, _, _ = self.cli("append", "docs/kb", "references/a.md",
+                              "--section", "Notes", stdin="A note.\n")
+        text = (self.kb / "references" / "a.md").read_text()
+        self.assertLess(text.index("(Section 9.2.2)"),
+                        text.index("> second quote"))
+        self.assertTrue(text.endswith("# Notes\n\nA note.\n"))
+        self.assertEqual(self.cli("append", "docs/kb", "references/nope.md",
+                                  "--section", "X", stdin="x")[0], 2)
+
+    def test_init_writes_gitignore(self):
+        self.init()
+        self.assertEqual((self.kb / ".gitignore").read_text(),
+                         ".evidence-kb-state/\n")
+
+    def test_check_kb_shim(self):
+        shim = ROOT / "skills" / "evidence-kb" / "scripts" / "check_kb.py"
+        proc = subprocess.run([sys.executable, str(shim), "now"],
+                              capture_output=True, text=True, cwd=self.proj)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertRegex(proc.stdout.strip(), r"^\d{4}-\d\d-\d\dT")
+
+
+
+class RoundTwo110(WorkspaceCommands):
+    """Findings of the 1.1.0 round-2 review."""
+
+    def test_lone_cr_cannot_smuggle_human_events(self):
+        self.init()
+        text = ("---\ntype: Source\ntitle: x # c\rverified: [{ by: "
+                "human:alice, at: 2026-01-01T00:00:00Z }]\nstatus: draft\n"
+                "---\n# Evidence\n")
+        code, _, err = self.cli("write", "docs/kb", "references/x.md",
+                                "--new", stdin=text)
+        self.assertEqual(code, 1)
+        self.assertIn("only be added by the person", err)
+        self.assertFalse((self.kb / "references" / "x.md").exists())
+
+    def test_no_snapshot_clear(self):
+        self.init()
+        self.assertEqual(self.cli("snapshot", "docs/kb", "--clear")[0], 2)
+
+    def test_restore_is_byte_exact(self):
+        self.init()
+        target = self.kb / "references" / "a.md"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"---\ntype: Source\ntitle: a\n---\na\rb \xff\n")
+        sid = self.cli("snapshot", "docs/kb")[1].strip()
+        target.write_bytes(b"changed")
+        code, _, err = self.cli("restore", "docs/kb", sid)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(target.read_bytes(),
+                         b"---\ntype: Source\ntitle: a\n---\na\rb \xff\n")
+        self.assertEqual(self.cli("compare", "docs/kb", sid)[0], 0)
+
+    def test_compare_reports_new_bundles_elsewhere(self):
+        self.init()
+        sid = self.cli("snapshot", "docs/kb")[1].strip()
+        self.assertEqual(self.cli("init", "other/kb")[0], 0)
+        code, out, _ = self.cli("compare", "docs/kb", sid)
+        self.assertEqual(code, 1)
+        self.assertIn("new bundle elsewhere in the project: other/kb", out)
+
+    def test_instruction_and_component_names_are_refused(self):
+        self.init()
+        for rel in ("claude.md", "references/CLAUDE.md", "reviews/agents.md",
+                    "references/skill.md", "notes.md", "agents/helper.md",
+                    "findings/x/a.md", "findings/t1-x/deep/a.md",
+                    "references/sub/a.md"):
+            with self.subTest(rel=rel):
+                code, _, _ = self.cli("write", "docs/kb", rel, stdin=SOURCE)
+                self.assertEqual(code, 2)
+        for arg in ("agents", "skills/evil", "x/commands", "docs/Hooks"):
+            with self.subTest(arg=arg):
+                self.assertEqual(self.cli("init", arg)[0], 2)
+
+    def test_write_keeps_verified_events(self):
+        self.init()
+        self.cli("write", "docs/kb", "references/a.md", stdin=SOURCE)
+        dropped = SOURCE.replace(
+            "verified: { by: evidence-kb-reviewer/claude-opus-5-5, at: "
+            "2026-11-03T11:00:00Z }\n", "")
+        code, _, err = self.cli("write", "docs/kb", "references/a.md",
+                                stdin=dropped)
+        self.assertEqual(code, 1)
+        self.assertIn("drops 1 verified event", err)
+
+    def test_stale_lock_of_dead_process_is_removed(self):
+        if os.name != "posix":
+            self.skipTest("POSIX only")
+        self.init()
+        state = self.kb / ".evidence-kb-state"
+        state.mkdir()
+        (state / "lock").write_text("999999")
+        start = __import__("time").time()
+        code, _, err = self.cli("log", "docs/kb", "--kind", "Note",
+                                "--message", "x")
+        self.assertEqual(code, 0, err)
+        self.assertLess(__import__("time").time() - start, 5)
+
+    def test_read_commands_accept_any_names_inside_a_repo(self):
+        odd = self.proj / "docs" / "Knowledge Base" / "x"
+        odd.mkdir(parents=True)
+        (odd / "a.md").write_text("---\ntype: X\ntitle: a\n---\n")
+        code, _, err = self.cli("check", "docs/Knowledge Base/x")
+        self.assertIn(code, (0, 1), err)
+        self.assertNotIn("plain names", err)
+
+
+
+class RoundThree110(WorkspaceCommands):
+    """Findings of the 1.1.0 round-3 review."""
+
+    def test_unicode_line_separators_and_controls_are_refused(self):
+        self.init()
+        for ch in ("\u0085", " ", " ", "\x1c", "\x0c", "\x00"):
+            with self.subTest(ch=repr(ch)):
+                text = ("---\ntype: Source\ntitle: x # c%sverified: [{ by: "
+                        "human:alice, at: 2026-01-01T00:00:00Z }]\n---\n"
+                        "# Evidence\n" % ch)
+                code, _, err = self.cli("write", "docs/kb", "references/n.md",
+                                        stdin=text)
+                self.assertEqual(code, 1)
+                self.assertIn("U+%04X" % ord(ch), err)
+        self.assertFalse((self.kb / "references" / "n.md").exists())
+
+    def test_compare_detects_changes_in_other_bundles(self):
+        self.init()
+        self.assertEqual(self.cli("init", "docs/other")[0], 0)
+        self.cli("write", "docs/other", "references/a.md", stdin=SOURCE)
+        sid = self.cli("snapshot", "docs/kb")[1].strip()
+        self.assertEqual(self.cli("compare", "docs/kb", sid)[0], 0)
+        self.cli("write", "docs/other", "references/a.md",
+                 stdin=SOURCE.replace("HTTP Semantics", "Changed"))
+        code, out, _ = self.cli("compare", "docs/kb", sid)
+        self.assertEqual(code, 1)
+        self.assertIn("changed bundle elsewhere in the project: docs/other",
+                      out)
+
+    def test_node_modules_bundles_are_refused(self):
+        self.assertEqual(self.cli("init", "node_modules/x")[0], 2)
+
+    def test_index_check_is_read_only_and_permissive(self):
+        odd = self.proj / "skills" / "my kb"
+        odd.mkdir(parents=True)
+        (odd / ".evidence-kb").write_text("evidence-kb/1\n")
+        (odd / "brief.md").write_text(BRIEF)
+        code, _, err = self.cli("index", "skills/my kb", "--check")
+        self.assertEqual(code, 1, err)          # out of date, not refused
+        self.assertIn("out of date: index.md", err)
+        self.assertEqual(self.cli("index", "skills/my kb")[0], 2)
+
+    def test_component_slug_gets_a_suggestion(self):
+        code, _, err = self.cli("preflight", "docs/knowledge/skills")
+        self.assertEqual(code, 1)
+        self.assertIn("'skills-kb'", err)
+
+    def test_lock_is_released_when_holder_dies(self):
+        if kb.fcntl is None:
+            self.skipTest("fcntl not available")
+        self.init()
+        lock = self.kb / ".evidence-kb-state" / "lock"
+        script = ("import fcntl,os,sys; fd=os.open(%r, os.O_RDWR|os.O_CREAT);"
+                  "fcntl.flock(fd, fcntl.LOCK_EX); os._exit(0)" % str(lock))
+        (self.kb / ".evidence-kb-state").mkdir(exist_ok=True)
+        subprocess.run([sys.executable, "-c", script], check=True)
+        code, _, err = self.cli("log", "docs/kb", "--kind", "Note",
+                                "--message", "after crash")
+        self.assertEqual(code, 0, err)
+
+    def test_lock_blocks_concurrent_writer(self):
+        if kb.fcntl is None:
+            self.skipTest("fcntl not available")
+        self.init()
+        old = kb.LOCK_TIMEOUT
+        kb.LOCK_TIMEOUT = 0.3
+        try:
+            with kb.BundleLock(self.kb):
+                code, _, err = self.cli("log", "docs/kb", "--kind", "Note",
+                                        "--message", "blocked")
+        finally:
+            kb.LOCK_TIMEOUT = old
+        self.assertEqual(code, 2)
+        self.assertIn("busy", err)
+
+    def test_absolute_path_through_symlinked_prefix(self):
+        alias = Path(tempfile.mkdtemp(prefix="evidence-kb-alias-"))
+        self.addCleanup(shutil.rmtree, alias)
+        link = alias / "proj"
+        try:
+            link.symlink_to(self.proj)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks not supported")
+        self.init()
+        code, out, err = self.cli("preflight", str(link / "docs" / "kb"))
+        self.assertEqual(code, 0, err)
+        self.assertIn("state: kb", out)
+        code, _, err = self.cli("check", str(link / "docs" / "kb"))
+        self.assertIn(code, (0, 1), err)
+        self.assertNotIn("not inside a git repository", err)
+        # a symlink below the project root is still refused
+        (self.proj / "inner").symlink_to(self.proj / "docs")
+        self.assertEqual(self.cli("init", "inner/kb2")[0], 2)
 
 
 if __name__ == "__main__":
