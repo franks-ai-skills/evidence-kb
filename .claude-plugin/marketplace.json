@@ -1,0 +1,17 @@
+{
+  "name": "evidence-kb",
+  "owner": {
+    "name": "franks-ai-skills",
+    "url": "https://github.com/franks-ai-skills"
+  },
+  "description": "Single-plugin marketplace for evidence-kb: researched, reviewed knowledge bases in the Open Knowledge Format.",
+  "plugins": [
+    {
+      "name": "evidence-kb",
+      "source": "./",
+      "description": "Builds an evidence-based knowledge base about any topic in the repository, as an Open Knowledge Format (OKF) bundle, before implementation: plan, sourced findings, checkable recommendations, and an audit, with every phase challenged by independent reviewer subagents in a loop. Runs only when invoked explicitly.",
+      "version": "1.0.0",
+      "category": "productivity"
+    }
+  ]
+}
