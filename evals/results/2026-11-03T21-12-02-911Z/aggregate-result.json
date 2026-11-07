@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "claudeVersion": "2.1.317",
+  "startedAt": "2026-11-03T21:12:02.911Z",
+  "durationSeconds": 21,
+  "costUsd": 0.1542613,
+  "partial": false,
+  "suite": {
+    "root": "~/Development/private/temp-skills/evidence-kb",
+    "ablation": "with-without",
+    "caseFilter": "no-topic-asks-once",
+    "threshold": 1,
+    "concurrency": 1,
+    "plugins": [
+      {
+        "name": "evidence-kb",
+        "version": "1.1.0",
+        "path": "~/Development/private/temp-skills/evidence-kb"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "no-topic-asks-once",
+      "dir": "evals/no-topic-asks-once",
+      "source": "prose",
+      "promptMarkdown": "/evidence-kb:evidence-kb",
+      "runsPerCase": 3,
+      "timeoutSeconds": 300,
+      "maxTurns": 8,
+      "graders": [
+        {
+          "name": "criteria",
+          "type": "llm",
+          "weight": 1,
+          "graderMarkdown": "The skill was invoked without any topic and the conversation names none. PASS only if the response asks the user which topic the knowledge base should cover (asking them to invoke the skill again with the topic counts as asking), and does not start researching, invent a topic, or ask for approval of anything else. FAIL if the response picks a topic by itself or asks several unrelated questions.",
+          "config": {
+            "criteria": "The skill was invoked without any topic and the conversation names none. PASS only if the response asks the user which topic the knowledge base should cover (asking them to invoke the skill again with the topic counts as asking), and does not start researching, invent a topic, or ask for approval of anything else. FAIL if the response picks a topic by itself or asks several unrelated questions.",
+            "focus": "last_message"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 2,
+            "costUsd": 0.1208256,
+            "judgeCostUsd": 0.00046540000000000004,
+            "durationSeconds": 13,
+            "startedAt": "2026-11-03T21:12:02.945Z",
+            "error": null,
+            "tracePath": "/private/tmp/e-bAsdxO/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "criteria",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "I can't start yet, because the request didn't include a topic. There's also no existing knowledge base in this project to pick up instead: no `brief.md` has `kb_profile: evidence-kb/1`.\n\n**What topic should the knowledge base cover?**\n\nPlease send your answer by running the skill again with the topic, for example:\n\n```\n/evidence-kb:evidence-kb <your topic> [--out <dir>] [--max-rounds <n>] [--parallel <n>] [--max-topics <n>]\n```\n\nDon't just reply here: a plain message in this conversation would cancel the skill's pre-approvals, and later steps would then stop to ask for permission. Nothing has been created or changed so far."
+              }
+            ]
+          }
+        ],
+        "without": [
+          {
+            "score": 0,
+            "passed": false,
+            "turns": 1,
+            "costUsd": 0.0334357,
+            "judgeCostUsd": 0.00014250000000000005,
+            "durationSeconds": 8,
+            "startedAt": "2026-11-03T21:12:15.830Z",
+            "error": null,
+            "tracePath": "/private/tmp/e-ClINyQ/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "criteria",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "The `/evidence-kb:evidence-kb` command isn't installed in this session, so it didn't run. It looks like a plugin command (`evidence-kb` plugin, `evidence-kb` skill), but no plugin or skill by that name is loaded here.\n\nYou have two options:\n\n- **Add the command.** You or your org admin can install the `evidence-kb` plugin as an organization plugin, or add it as a project skill. After that, the command will show up in the slash-command list.\n- **Have me do the task directly.** Tell me what you wanted from the command, for example building or querying an evidence knowledge base, and which files or sources to use. I can work on it with the tools I have now."
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 0,
+        "passRateWithout": 0,
+        "delta": 1
+      }
+    }
+  ],
+  "aggregates": {
+    "casesTotal": 1,
+    "casesPassed": 1,
+    "overallScore": 1,
+    "overallPassRate": 1,
+    "meanDelta": 1
+  }
+}

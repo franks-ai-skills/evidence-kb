@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "claudeVersion": "2.1.317",
+  "startedAt": "2026-11-03T21:25:51.738Z",
+  "durationSeconds": 33,
+  "costUsd": 0.2271948,
+  "partial": false,
+  "suite": {
+    "root": "~/Development/private/temp-skills/evidence-kb",
+    "ablation": "with-without",
+    "tagFilters": [
+      "fast"
+    ],
+    "threshold": 1,
+    "concurrency": 1,
+    "plugins": [
+      {
+        "name": "evidence-kb",
+        "version": "1.1.0",
+        "path": "~/Development/private/temp-skills/evidence-kb"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "explicit-only",
+      "dir": "evals/explicit-only",
+      "source": "prose",
+      "promptMarkdown": "Before we implement password hashing in this service, I'd like you to collect researched evidence on which algorithm and parameters to use and put it into a knowledge base in the repo. For now, just tell me in a few sentences how you would approach that.",
+      "runsPerCase": 3,
+      "timeoutSeconds": 300,
+      "maxTurns": 6,
+      "graders": [
+        {
+          "name": "not-invoked",
+          "type": "tool_used",
+          "weight": 1,
+          "config": {
+            "tool": "Skill",
+            "input_match": "\"skill\"\\s*:\\s*\"(?:[\\w-]+:)?evidence-kb\"",
+            "min": 0,
+            "max": 0
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 1,
+            "costUsd": 0.0364978,
+            "judgeCostUsd": 0,
+            "durationSeconds": 6,
+            "startedAt": "2026-11-03T21:25:51.771Z",
+            "error": null,
+            "tracePath": "/private/tmp/e-rmvKGS/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "not-invoked",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Skill called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ],
+        "without": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 1,
+            "costUsd": 0.036677799999999997,
+            "judgeCostUsd": 0,
+            "durationSeconds": 6,
+            "startedAt": "2026-11-03T21:25:58.043Z",
+            "error": null,
+            "tracePath": "/private/tmp/e-PMhKWD/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "not-invoked",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Skill called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 1,
+        "passRateWithout": 1,
+        "delta": 0
+      }
+    },
+    {
+      "name": "no-topic-asks-once",
+      "dir": "evals/no-topic-asks-once",
+      "source": "prose",
+      "promptMarkdown": "/evidence-kb:evidence-kb",
+      "runsPerCase": 3,
+      "timeoutSeconds": 300,
+      "maxTurns": 8,
+      "graders": [
+        {
+          "name": "criteria",
+          "type": "llm",
+          "weight": 1,
+          "graderMarkdown": "The skill was invoked without any topic and the conversation names none. PASS only if the response asks the user which topic the knowledge base should cover (asking them to invoke the skill again with the topic counts as asking), and does not start researching, invent a topic, or ask for approval of anything else. FAIL if the response picks a topic by itself or asks several unrelated questions.",
+          "config": {
+            "criteria": "The skill was invoked without any topic and the conversation names none. PASS only if the response asks the user which topic the knowledge base should cover (asking them to invoke the skill again with the topic counts as asking), and does not start researching, invent a topic, or ask for approval of anything else. FAIL if the response picks a topic by itself or asks several unrelated questions.",
+            "focus": "last_message"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 2,
+            "costUsd": 0.12090709999999999,
+            "judgeCostUsd": 0.00013350000000000002,
+            "durationSeconds": 10,
+            "startedAt": "2026-11-03T21:26:04.415Z",
+            "error": null,
+            "tracePath": "/private/tmp/e-8TTVfu/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "criteria",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "I didn't start a knowledge base because the request had no topic, and this project doesn't have an existing one I could resume.\n\n**Which topic should the knowledge base cover?**\n\nPlease reply by running the skill again with the topic, for example:\n\n```\n/evidence-kb:evidence-kb <your topic>\n```\n\nYou can add options such as `--out <dir>`, `--max-rounds <n>`, `--parallel <n>` or `--max-topics <n>`. Please don't answer here in the chat: a reply in this conversation would cancel the skill's permissions, and the run would stop to ask for approvals."
+              }
+            ]
+          }
+        ],
+        "without": [
+          {
+            "score": 0,
+            "passed": false,
+            "turns": 1,
+            "costUsd": 0.033112100000000005,
+            "judgeCostUsd": 0.00037889999999999994,
+            "durationSeconds": 10,
+            "startedAt": "2026-11-03T21:26:14.756Z",
+            "error": null,
+            "tracePath": "/private/tmp/e-DfmoCc/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "criteria",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ],
+                "evidence": "The `/evidence-kb:evidence-kb` command isn't installed in this session, so it didn't run. The `evidence-kb:` prefix means it comes from a plugin called `evidence-kb`, and that plugin isn't loaded here. You can add it as an organization plugin or a project skill.\n\nYou only typed the command name, so I can't tell what you wanted it to do. If you tell me the task (for example, building or searching an evidence knowledge base, or collecting sources for a claim), I can do it directly with the tools I have."
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 0,
+        "passRateWithout": 0,
+        "delta": 1
+      }
+    }
+  ],
+  "aggregates": {
+    "casesTotal": 2,
+    "casesPassed": 2,
+    "overallScore": 1,
+    "overallPassRate": 1,
+    "meanDelta": 0.5
+  }
+}
